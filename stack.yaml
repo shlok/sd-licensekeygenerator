@@ -1,0 +1,16 @@
+resolver: lts-7.3
+extra-deps:
+    - HsOpenSSL-0.11.1.1
+packages:
+    - location: .
+    - location:
+          git: https://github.com/shlok/HsOpenSSL.git
+          commit: 8e74ddabd8e308f7f3c16af2d1f740890a386bff
+      extra-dep: true
+
+# Thanks: https://github.com/phonohawk/HsOpenSSL/issues/41#issuecomment-203914519
+extra-include-dirs:
+    - /usr/local/opt/openssl/include
+extra-lib-dirs:
+    - /usr/local/opt/openssl/lib
+    - /usr/lib
