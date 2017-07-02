@@ -1,62 +1,66 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+
 module SD.LicenseKeyGenerator
     ( generateLicenseKey
     ) where
 
-import qualified Codec.Binary.Base32       as B32
-import qualified Control.Exception         as E
-import qualified Control.Monad             as M
-import qualified Control.Monad.IO.Class    as IOC
-import qualified Control.Monad.Trans.Maybe as TM
-import qualified Data.ByteString           as B
-import qualified Data.Text                 as T
-import qualified Data.Text.Encoding        as TE
-import qualified OpenSSL                   as O
-import qualified OpenSSL.EVP.Digest        as ED
-import qualified OpenSSL.DER               as D
-import qualified OpenSSL.EVP.Sign          as S
-import qualified OpenSSL.RSA               as R
+import           Codec.Binary.Base32       (encode)
+import           Control.Exception         (SomeException, handle)
+import           Control.Monad             (guard)
+import           Control.Monad.IO.Class    (liftIO)
+import           Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
+import           Data.ByteString           (ByteString)
+import qualified Data.ByteString           as B (readFile)
+import           Data.Text                 (Text, chunksOf, dropEnd,
+                                               intercalate)
+import qualified Data.Text                 as T (concat, length)
+import           Data.Text.Encoding        (decodeUtf8)
+import           OpenSSL                   (withOpenSSL)
+import           OpenSSL.EVP.Digest        (getDigestByName)
+import           OpenSSL.DER               (fromDERPriv)
+import           OpenSSL.EVP.Sign          (signBS)
+import           OpenSSL.RSA               (RSAKeyPair)
 
-type UserName              = B.ByteString
+type UserName              = ByteString
 type DERPrivateKeyFilePath = String
-type LicenseKey            = T.Text
+type LicenseKey            = Text
 
 generateLicenseKey :: UserName -> DERPrivateKeyFilePath -> IO (Maybe LicenseKey)
-generateLicenseKey name path = TM.runMaybeT $ do
-    signatureBS <- TM.MaybeT $ signUserName name path
-    license <- TM.MaybeT . return $ signatureBSToLicenseKey signatureBS
+generateLicenseKey name path = runMaybeT $ do
+    signatureBS <- MaybeT $ signUserName name path
+    license <- MaybeT . return $ signatureBSToLicenseKey signatureBS
     return license
 
-signUserName :: UserName -> DERPrivateKeyFilePath -> IO (Maybe B.ByteString)
-signUserName name path = O.withOpenSSL . TM.runMaybeT $ do
-    privKeyBS <- TM.MaybeT $ privKeyFileToPrivKeyBS path
-    rsaKeyPair <- TM.MaybeT . return $ privKeyBSToRSAKeyPair privKeyBS
-    digest <- TM.MaybeT $ ED.getDigestByName "sha1"
-    signatureBS <- IOC.liftIO $ S.signBS digest rsaKeyPair name
+signUserName :: UserName -> DERPrivateKeyFilePath -> IO (Maybe ByteString)
+signUserName name path = withOpenSSL . runMaybeT $ do
+    privKeyBS <- MaybeT $ privKeyFileToPrivKeyBS path
+    rsaKeyPair <- MaybeT . return $ privKeyBSToRSAKeyPair privKeyBS
+    digest <- MaybeT $ getDigestByName "sha1"
+    signatureBS <- liftIO $ signBS digest rsaKeyPair name
     return signatureBS
 
-signatureBSToLicenseKey :: B.ByteString -> Maybe T.Text
+signatureBSToLicenseKey :: ByteString -> Maybe Text
 signatureBSToLicenseKey signature = do
-    let base32Signature = (T.dropEnd 3) -- Remove last three === chars.
-                              . TE.decodeUtf8
-                              . B32.encode $ signature
-    M.guard $ T.length base32Signature == 205
-    let listOfLines = T.chunksOf 41 base32Signature
-    let listOfChunkedLines = map (concatLastTwo . T.chunksOf 5) listOfLines
-    let licenseKeyLines = map (T.intercalate "-") listOfChunkedLines
-    let licenseKey = T.intercalate "\n" licenseKeyLines
+    let base32Signature = (dropEnd 3) -- Remove last three === chars.
+                              . decodeUtf8
+                              . encode $ signature
+    guard $ T.length base32Signature == 205
+    let listOfLines = chunksOf 41 base32Signature
+    let listOfChunkedLines = map (concatLastTwo . chunksOf 5) listOfLines
+    let licenseKeyLines = map (intercalate "-") listOfChunkedLines
+    let licenseKey = intercalate "\n" licenseKeyLines
     return licenseKey
 
-concatLastTwo :: [T.Text] -> [T.Text]
+concatLastTwo :: [Text] -> [Text]
 concatLastTwo ts =
     let (beg, lastTwo) = splitAt (length ts - 2) ts
         in beg ++ [T.concat lastTwo]
 
-privKeyBSToRSAKeyPair :: B.ByteString -> Maybe R.RSAKeyPair
-privKeyBSToRSAKeyPair = D.fromDERPriv
+privKeyBSToRSAKeyPair :: ByteString -> Maybe RSAKeyPair
+privKeyBSToRSAKeyPair = fromDERPriv
 
-privKeyFileToPrivKeyBS :: DERPrivateKeyFilePath -> IO (Maybe B.ByteString)
+privKeyFileToPrivKeyBS :: DERPrivateKeyFilePath -> IO (Maybe ByteString)
 privKeyFileToPrivKeyBS path = do
-    E.handle (\(_ :: E.SomeException) -> return Nothing) $ do
+    handle (\(_ :: SomeException) -> return Nothing) $ do
         bs <- B.readFile path
         return $ Just bs
