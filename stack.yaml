@@ -8,7 +8,7 @@ packages:
           commit: 8e74ddabd8e308f7f3c16af2d1f740890a386bff
       extra-dep: true
 
-# Thanks: https://github.com/phonohawk/HsOpenSSL/issues/41#issuecomment-203914519
+# https://github.com/phonohawk/HsOpenSSL/issues/41#issuecomment-203914519
 extra-include-dirs:
     - /usr/local/opt/openssl/include
 extra-lib-dirs:
